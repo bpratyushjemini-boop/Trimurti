@@ -1,12 +1,13 @@
 from typing import Dict, List, Any, Optional, AsyncGenerator
 import asyncio
 from app.providers.base import BaseLLMProvider
+from app.providers.gemini import GeminiProvider
+from app.core.config import settings
 
 class StubProvider(BaseLLMProvider):
     """
-    Default foundational provider for Milestone 1.
-    Demonstrates model-agnostic structure and response dispatching
-    without requiring external API keys or live network dependencies.
+    Fallback diagnostic/simulated provider.
+    Used when mock mode is explicitly requested or when running offline tests.
     """
 
     @property
@@ -15,7 +16,7 @@ class StubProvider(BaseLLMProvider):
 
     @property
     def display_name(self) -> str:
-        return "NARAD Simulated Core (Milestone 1)"
+        return "NARAD Simulated Core (Fallback)"
 
     def is_configured(self) -> bool:
         return True
@@ -34,19 +35,40 @@ class StubProvider(BaseLLMProvider):
                 last_user_msg = m.get("content", "")
                 break
 
-        response_text = (
-            f"[NARAD CORE :: TELEMETRY ONLINE]\n"
-            f"Transceiver received input: \"{last_user_msg}\"\n\n"
-            f"Foundations verified. SQLite persistence, modular provider registry, "
-            f"and JARVIS HUD interface are operating within normal parameters. "
-            f"Live AI provider modules (Gemini, Groq, OpenRouter, Claude, OpenAI) "
-            f"will be connected in subsequent milestones."
-        )
+        user_query_lower = last_user_msg.lower().strip()
+
+        if any(greet in user_query_lower for greet in ["hello", "hi", "hey", "who are you", "what can you do"]):
+            response_text = (
+                "Greetings. I am **NARAD**—your private, personal AI assistant and primary interface "
+                "for your local TRIMURTI system.\n\n"
+                "I am currently operating as a **standalone, single-user system** in Milestone 2 interface mode. "
+                "All sessions and messages are stored strictly on your local machine in SQLite with zero cloud data exposure. "
+                "In Milestone 3, live multimodal AI providers (Gemini, Claude, OpenAI, and Groq) will be integrated directly into this workspace.\n\n"
+                "How may I assist you today?"
+            )
+        elif "status" in user_query_lower or "system" in user_query_lower:
+            response_text = (
+                "**NARAD System Status Overview:**\n\n"
+                "• **Architecture**: Private Single-User Standalone\n"
+                "• **Interface Engine**: React 18 + Vite (JARVIS HUD visual design)\n"
+                "• **Local Gateway**: FastAPI 0.110 (127.0.0.1, latency < 2ms)\n"
+                "• **Data Storage**: Isolated local SQLite database\n"
+                "• **AI Routing Layer**: Model-agnostic dispatcher (Simulated V1 Core active)\n"
+                "• **Future Subsystems**: Smriti, Manthan, Kriya (Standby for V2)\n\n"
+                "All local diagnostics are nominal. Ready for your directive."
+            )
+        else:
+            response_text = (
+                f"Understood. I have logged your directive: **\"{last_user_msg}\"**\n\n"
+                "This conversation is stored locally in your private SQLite database. "
+                "Currently operating in Milestone 2 interface verification mode with simulated responses. "
+                "Live AI reasoning and external tool execution will unlock in upcoming milestones."
+            )
 
         return {
             "content": response_text,
             "provider": self.provider_id,
-            "model": model or "narad-v1-foundation",
+            "model": model or "narad-core-v1",
             "usage": {"prompt_tokens": len(last_user_msg.split()), "completion_tokens": len(response_text.split())}
         }
 
@@ -62,19 +84,64 @@ class StubProvider(BaseLLMProvider):
         words = result["content"].split(" ")
         for word in words:
             yield word + " "
-            await asyncio.sleep(0.04)
+            await asyncio.sleep(0.02)
+
+
+class FutureSlotProvider(BaseLLMProvider):
+    """
+    Reserved provider slot for upcoming milestones (OpenRouter, Groq, Claude, OpenAI).
+    """
+
+    def __init__(self, pid: str, name: str, config_key: str):
+        self._pid = pid
+        self._name = name
+        self._config_key = config_key
+
+    @property
+    def provider_id(self) -> str:
+        return self._pid
+
+    @property
+    def display_name(self) -> str:
+        return self._name
+
+    def is_configured(self) -> bool:
+        val = getattr(settings, self._config_key, "")
+        return bool(val and val.strip())
+
+    async def generate_response(self, messages, model=None, **kwargs) -> Dict[str, Any]:
+        return {
+            "content": f"⚠️ **{self._name} connector slot is reserved.** Integration will arrive in future milestone updates.",
+            "provider": self.provider_id,
+            "model": model or "unsupported",
+            "status": "not_implemented",
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0}
+        }
+
+    async def stream_response(self, messages, model=None, **kwargs) -> AsyncGenerator[str, None]:
+        yield f"⚠️ {self._name} connector is reserved for future integration."
+
 
 class ProviderManager:
     """
     Central registry and dispatcher for AI model providers.
-    Allows runtime provider selection without modifying API or client logic.
+    Supports runtime provider selection and query delegation.
     """
 
     def __init__(self):
         self._providers: Dict[str, BaseLLMProvider] = {}
-        self._active_provider_id: str = "mock-narad"
+        self._active_provider_id: str = settings.NARAD_DEFAULT_PROVIDER or "gemini"
         
-        # Register default foundational provider
+        # 1. Register Primary Gemini Provider
+        self.register_provider(GeminiProvider())
+
+        # 2. Register Future Slots
+        self.register_provider(FutureSlotProvider("openrouter", "OpenRouter Gateway", "OPENROUTER_API_KEY"))
+        self.register_provider(FutureSlotProvider("groq", "Groq LPU", "GROQ_API_KEY"))
+        self.register_provider(FutureSlotProvider("claude", "Anthropic Claude", "ANTHROPIC_API_KEY"))
+        self.register_provider(FutureSlotProvider("openai", "OpenAI GPT", "OPENAI_API_KEY"))
+
+        # 3. Register Fallback Mock Provider
         self.register_provider(StubProvider())
 
     def register_provider(self, provider: BaseLLMProvider):
@@ -83,8 +150,7 @@ class ProviderManager:
     def get_provider(self, provider_id: Optional[str] = None) -> BaseLLMProvider:
         pid = provider_id or self._active_provider_id
         if pid not in self._providers:
-            # Fallback to active or first available
-            return self._providers.get(self._active_provider_id)
+            return self._providers.get(self._active_provider_id) or self._providers.get("gemini")
         return self._providers[pid]
 
     def set_active_provider(self, provider_id: str) -> bool:

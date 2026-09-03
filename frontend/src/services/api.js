@@ -13,7 +13,9 @@ export const api = {
         system: 'NARAD',
         version: '0.1.0',
         database: 'disconnected',
-        active_provider: 'none'
+        active_provider: 'gemini',
+        active_model: 'gemini-2.5-flash',
+        is_configured: false
       };
     }
   },
@@ -48,13 +50,29 @@ export const api = {
     return true;
   },
 
-  async sendMessage(chatId, content, providerId = null, model = null) {
-    const res = await fetch(`${BASE_URL}/chats/${chatId}/messages`, {
+  /**
+   * Primary chat transmission via POST /api/chat
+   * Automatically persists to SQLite and returns real model metadata & latency.
+   */
+  async sendChat(message, chatId = null, provider = null, model = null) {
+    const res = await fetch(`${BASE_URL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, provider_id: providerId, model }),
+      body: JSON.stringify({
+        message,
+        chat_id: chatId,
+        provider,
+        model
+      }),
     });
-    if (!res.ok) throw new Error('Failed to send message');
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.detail || `Server error (HTTP ${res.status})`);
+    }
     return await res.json();
   },
+
+  async sendMessage(chatId, content, providerId = null, model = null) {
+    return this.sendChat(content, chatId, providerId, model);
+  }
 };

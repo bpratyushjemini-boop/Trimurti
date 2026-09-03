@@ -12,8 +12,8 @@
 /* Technical Subtle Grid Pattern */
 .bg-tech-grid {
   background-image: 
-    linear-gradient(to right, rgba(0, 240, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 240, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(to right, rgba(0, 240, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 240, 255, 0.025) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 
@@ -33,19 +33,19 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.45);
 }
 
 /* Glassmorphic HUD panel */
 .hud-panel {
-  background: rgba(10, 16, 31, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 240, 255, 0.12);
+  background: rgba(10, 16, 31, 0.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 240, 255, 0.14);
 }
 
 .hud-panel-active {
-  border-color: rgba(0, 240, 255, 0.35);
-  box-shadow: 0 0 15px -3px rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.42);
+  box-shadow: 0 0 20px -3px rgba(0, 240, 255, 0.12);
 }
 
 /* Corner bracket decorations for technical HUD aesthetic */
@@ -57,12 +57,13 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-top: 1.5px solid #00f0ff;
   border-left: 1.5px solid #00f0ff;
   pointer-events: none;
 }
+
 .hud-corner-br {
   position: relative;
 }
@@ -71,9 +72,68 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-bottom: 1.5px solid #00f0ff;
   border-right: 1.5px solid #00f0ff;
   pointer-events: none;
+}
+
+/* Subtle cyan pulse for status badges */
+@keyframes cyan-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(1.18);
+  }
+}
+
+.animate-cyan-pulse {
+  animation: cyan-pulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ARC Reactor Rotations */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-reverse-slow {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 18s linear infinite;
+}
+
+.animate-spin-reverse-slow {
+  animation: spin-reverse-slow 12s linear infinite;
+}
+
+/* Message prose and code styling */
+.message-content strong {
+  color: #67e8f9;
+  font-weight: 600;
+}
+
+.message-content code {
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  color: #38bdf8;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.825em;
 }

@@ -46,6 +46,7 @@ class ChatMessage(Base):
             "session_id": self.session_id,
             "role": self.role,
             "content": self.content,
+            "metadata_json": self.metadata_json,
             "metadata": self.metadata_json,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }

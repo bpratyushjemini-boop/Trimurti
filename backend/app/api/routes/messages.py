@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from app.db.database import get_db
 from app.db.models import ChatSession, ChatMessage
-from app.providers.manager import provider_manager
+from app.core.narad import narad_core
 
 router = APIRouter(prefix="/chats/{chat_id}/messages", tags=["Messages"])
 
@@ -66,10 +66,7 @@ async def send_message(
     db.commit()
     db.refresh(user_msg)
 
-    # 2. Query Active Model Provider
-    provider = provider_manager.get_provider(payload.provider_id)
-    
-    # Compile history for provider context
+    # 2. Query NARAD Core & Model Router
     history_messages = (
         db.query(ChatMessage)
         .filter(ChatMessage.session_id == chat_id)
@@ -82,20 +79,24 @@ async def send_message(
         for m in history_messages
     ]
 
-    provider_result = await provider.generate_response(
-        messages=formatted_history,
-        model=payload.model
+    core_result = await narad_core.process_message(
+        message=content,
+        history=formatted_history,
+        requested_provider=payload.provider_id,
+        requested_model=payload.model
     )
 
     # 3. Save Assistant Message
     assistant_msg = ChatMessage(
         session_id=chat_id,
         role="assistant",
-        content=provider_result.get("content", ""),
+        content=core_result.get("response", ""),
         metadata_json=json.dumps({
-            "provider": provider_result.get("provider"),
-            "model": provider_result.get("model"),
-            "usage": provider_result.get("usage")
+            "provider": core_result.get("provider"),
+            "model": core_result.get("model"),
+            "latency_ms": core_result.get("latency_ms"),
+            "status": core_result.get("status"),
+            "usage": core_result.get("usage")
         })
     )
     db.add(assistant_msg)
@@ -104,5 +105,9 @@ async def send_message(
 
     return {
         "user_message": user_msg.to_dict(),
-        "assistant_message": assistant_msg.to_dict()
+        "assistant_message": assistant_msg.to_dict(),
+        "provider": core_result.get("provider"),
+        "model": core_result.get("model"),
+        "latency_ms": core_result.get("latency_ms"),
+        "status": core_result.get("status")
     }
