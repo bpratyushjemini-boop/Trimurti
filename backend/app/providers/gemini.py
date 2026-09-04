@@ -26,12 +26,7 @@ class GeminiProvider(BaseLLMProvider):
         return "Google Gemini"
 
     def _get_api_key(self) -> str:
-        # Check in-memory settings / process environment (clean quotes and whitespace)
-        key = (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip().strip('"\'')
-        if key:
-            return key
-
-        # Dynamic disk check so saving backend/.env immediately takes effect without server restart
+        # 1. Check on-disk backend/.env first using dotenv_values (guarantees latest key from disk)
         try:
             from dotenv import dotenv_values
             from app.core.config import BACKEND_ENV_PATH, ROOT_ENV_PATH
@@ -45,6 +40,11 @@ class GeminiProvider(BaseLLMProvider):
                         return disk_key
         except Exception:
             pass
+
+        # 2. Fall back to in-memory settings / process environment
+        key = (settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip().strip('"\'')
+        if key:
+            return key
 
         return ""
 
