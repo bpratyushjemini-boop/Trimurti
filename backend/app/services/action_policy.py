@@ -170,11 +170,55 @@ class ActionPolicy:
     ]
 
     def __init__(self, workspace_root: Optional[str] = None, sandbox_dir: Optional[str] = None):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        self.workspace_root = os.path.realpath(workspace_root or base_dir)
-        backend_dir = os.path.join(self.workspace_root, "backend")
-        self.sandbox_dir = os.path.realpath(sandbox_dir or os.path.join(backend_dir, "data", "sandbox"))
-        os.makedirs(self.sandbox_dir, exist_ok=True)
+        # Determine environment mode (CLOUD vs LOCAL/SELF_HOSTED)
+        try:
+            from app.core.config import settings
+            is_cloud = (
+                getattr(settings, "is_cloud", False)
+                or os.getenv("ENVIRONMENT", "").upper() == "CLOUD"
+                or os.getenv("APP_ENV", "").upper() == "CLOUD"
+                or getattr(settings, "NARAD_RUNTIME_MODE", "").lower() == "cloud"
+            )
+        except Exception:
+            is_cloud = (
+                os.getenv("ENVIRONMENT", "").upper() == "CLOUD"
+                or os.getenv("APP_ENV", "").upper() == "CLOUD"
+                or os.getenv("NARAD_RUNTIME_MODE", "").lower() == "cloud"
+            )
+
+        if is_cloud:
+            # CLOUD mode: Default to a writable runtime directory (/tmp/narad)
+            cloud_sandbox = os.path.realpath(sandbox_dir or os.getenv("NARAD_SANDBOX_DIR", "/tmp/narad"))
+            self.sandbox_dir = cloud_sandbox
+            self.workspace_root = os.path.realpath(workspace_root or os.getenv("NARAD_WORKSPACE_ROOT", self.sandbox_dir))
+        else:
+            # LOCAL / SELF_HOSTED mode: Preserve existing workspace & data/sandbox behavior
+            current_file = os.path.abspath(__file__)
+            # action_policy.py -> services -> app -> backend
+            detected_backend = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            detected_workspace = os.path.dirname(detected_backend)
+
+            if os.path.basename(detected_backend) == "backend":
+                default_workspace = detected_workspace
+                default_backend = detected_backend
+            else:
+                default_workspace = detected_backend
+                default_backend = detected_backend
+
+            self.workspace_root = os.path.realpath(workspace_root or default_workspace)
+            default_sandbox = os.path.join(default_backend, "data", "sandbox")
+            self.sandbox_dir = os.path.realpath(sandbox_dir or default_sandbox)
+
+        # Ensure sandbox directory exists, falling back safely to /tmp/narad if permissions prevent creation
+        try:
+            os.makedirs(self.sandbox_dir, exist_ok=True)
+        except (PermissionError, OSError) as exc:
+            logger.warning(
+                f"[ActionPolicy] Permission denied creating sandbox at '{self.sandbox_dir}' ({exc}). "
+                f"Falling back to temporary directory '/tmp/narad'."
+            )
+            self.sandbox_dir = os.path.realpath("/tmp/narad")
+            os.makedirs(self.sandbox_dir, exist_ok=True)
 
         # Pending user confirmations: confirmation_id -> dict
         self._pending_confirmations: Dict[str, Dict[str, Any]] = {}

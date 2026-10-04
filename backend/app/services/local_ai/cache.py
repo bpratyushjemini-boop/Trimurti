@@ -5,6 +5,7 @@ Models are cached centrally in ~/.cache/huggingface/hub and loaded locally witho
 """
 
 import os
+import tempfile
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
@@ -20,7 +21,11 @@ class HFCacheManager:
 
     def __init__(self, cache_dir: Optional[str] = None):
         self.cache_dir = cache_dir or constants.HF_HUB_CACHE
-        os.makedirs(self.cache_dir, exist_ok=True)
+        try:
+            os.makedirs(self.cache_dir, exist_ok=True)
+        except (PermissionError, OSError):
+            self.cache_dir = os.path.join(tempfile.gettempdir(), "narad", "hf_cache")
+            os.makedirs(self.cache_dir, exist_ok=True)
 
     def get_cache_dir(self) -> str:
         return self.cache_dir

@@ -22,6 +22,7 @@ import logging
 import datetime
 import subprocess
 import asyncio
+import tempfile
 from typing import Dict, Any, List, Optional, Tuple
 
 from app.core.config import settings
@@ -45,7 +46,11 @@ class TrinetraVisionService:
             "screenshots",
             "trinetra"
         )
-        os.makedirs(self.screenshots_dir, exist_ok=True)
+        try:
+            os.makedirs(self.screenshots_dir, exist_ok=True)
+        except (PermissionError, OSError):
+            self.screenshots_dir = os.path.join(tempfile.gettempdir(), "narad", "screenshots", "trinetra")
+            os.makedirs(self.screenshots_dir, exist_ok=True)
         self._latest_screenshot_path: Optional[str] = None
         self._latest_screenshot_ref: Optional[str] = None
         self._latest_active_app: Optional[str] = None

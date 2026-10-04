@@ -20,6 +20,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 import logging
+import tempfile
 
 logger = logging.getLogger("narad.computer")
 
@@ -126,7 +127,11 @@ class MacComputerAdapter(ComputerAdapter):
         self.os_name = platform.system()
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.screenshots_dir = screenshots_dir or os.path.join(base_dir, "data", "screenshots")
-        os.makedirs(self.screenshots_dir, exist_ok=True)
+        try:
+            os.makedirs(self.screenshots_dir, exist_ok=True)
+        except (PermissionError, OSError):
+            self.screenshots_dir = os.path.join(tempfile.gettempdir(), "narad", "screenshots")
+            os.makedirs(self.screenshots_dir, exist_ok=True)
 
     def is_available(self) -> bool:
         """True only if running locally on macOS Darwin and not forced into cloud-only mode."""
