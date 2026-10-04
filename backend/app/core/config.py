@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
@@ -60,7 +60,12 @@ class Settings(BaseSettings):
     KNOWLEDGE_BASE_DIR: str = str(BACKEND_DIR / "data" / "knowledge_base")
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"]
+    # Union[..., str] is required: pydantic-settings JSON-decodes List[str] env vars
+    # BEFORE field validators run, so a comma-separated value such as
+    # CORS_ORIGINS="https://a,https://b" (as set in render.yaml) raised SettingsError
+    # at import time and crashed the process. With the str arm, JSON decode failures
+    # are tolerated and assemble_cors_origins() below always normalizes to List[str].
+    CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"]
 
     # Security & Protection for Cloud / Production
     NARAD_API_KEY: str = ""  # If set, enforces single-user Bearer/X-Narad-Key auth
@@ -110,7 +115,16 @@ class Settings(BaseSettings):
     @classmethod
     def assemble_cors_origins(cls, v):
         if isinstance(v, str):
-            return [i.strip() for i in v.split(",") if i.strip()]
+            v_clean = v.strip()
+            if v_clean.startswith("["):
+                import json
+                try:
+                    parsed = json.loads(v_clean)
+                    if isinstance(parsed, list):
+                        return [str(i).strip() for i in parsed if str(i).strip()]
+                except ValueError:
+                    pass
+            return [i.strip() for i in v_clean.split(",") if i.strip()]
         return v
 
     model_config = SettingsConfigDict(
