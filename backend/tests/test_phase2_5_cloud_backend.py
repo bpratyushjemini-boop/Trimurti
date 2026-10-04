@@ -324,7 +324,7 @@ def test_local_vs_cloud_memory_separation():
 
 def test_cloud_runtime_truth_reports_mac_offline():
     """When running in CLOUD mode, Runtime Truth must report Mac offline and local capabilities unavailable."""
-    with patch.object(settings, "NARAD_RUNTIME_MODE", "cloud"):
+    with patch.object(settings, "NARAD_RUNTIME_MODE", "cloud"), patch("app.services.node_registry.node_registry.get_active_node", return_value=None):
         truth = runtime_truth_service.get_runtime_truth()
         assert truth["mac_availability"]["available"] is False
         assert "OFFLINE" in truth["mac_availability"]["status"]

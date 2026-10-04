@@ -8,10 +8,29 @@ import os
 import time
 import logging
 from typing import Dict, Any, List, Optional
-import torch
 
 from app.core.config import settings
 from app.services.local_ai.cache import hf_cache_manager
+
+is_cloud = (
+    settings.is_cloud
+    or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+)
+
+if is_cloud:
+    torch = None
+    HAS_TORCH = False
+else:
+    try:
+        import torch
+        HAS_TORCH = True
+    except ImportError:
+        torch = None
+        HAS_TORCH = False
+
+
+def is_torch_available() -> bool:
+    return HAS_TORCH
 
 logger = logging.getLogger("narad.local_ai.manager")
 
@@ -35,7 +54,10 @@ class LocalAIManager:
         self._last_cache_hit: bool = False
         self._status: str = "STANDBY"
         self._last_error: Optional[str] = None
-        self._mps_available: bool = torch.backends.mps.is_available()
+        if HAS_TORCH and hasattr(torch, "backends") and hasattr(torch.backends, "mps"):
+            self._mps_available: bool = bool(torch.backends.mps.is_available())
+        else:
+            self._mps_available: bool = False
 
         # Decide hardware device
         # Note: Certain architectures with Grouped Query Attention (GQA) hit PyTorch 2.6 MPS
@@ -52,6 +74,24 @@ class LocalAIManager:
 
     def get_status_info(self) -> Dict[str, Any]:
         """Return real runtime telemetry for HUD display."""
+        is_cloud = (
+            settings.is_cloud
+            or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+        )
+        if is_cloud or not HAS_TORCH:
+            return {
+                "status": "UNAVAILABLE",
+                "model": self.model_id,
+                "device": "NONE",
+                "mps_available": False,
+                "is_loaded": False,
+                "cache_hit": False,
+                "load_time_ms": 0,
+                "last_inference_ms": 0,
+                "size_on_disk_str": "Not available",
+                "last_error": "Local AI disabled in CLOUD mode (Mac offline)" if is_cloud else "PyTorch not installed",
+            }
+
         cached_info = hf_cache_manager.get_model_cache_info(self.model_id)
         return {
             "status": self._status,
@@ -71,6 +111,11 @@ class LocalAIManager:
         Load local model and tokenizer into memory once.
         Records exact loading time and cache hit status.
         """
+        if not HAS_TORCH:
+            self._status = "UNAVAILABLE"
+            self._last_error = "PyTorch not available in this environment"
+            return False
+
         if self.is_loaded and not force:
             return True
 

@@ -7,11 +7,30 @@ Runs on Apple Silicon MPS or CPU using sentence-transformers/all-MiniLM-L6-v2 (3
 import time
 import logging
 from typing import List, Dict, Any, Optional
-import torch
 
 from app.services.embeddings.base import BaseEmbeddingProvider
 from app.services.local_ai.cache import hf_cache_manager
 from app.core.config import settings
+
+is_cloud = (
+    settings.is_cloud
+    or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+)
+
+if is_cloud:
+    torch = None
+    HAS_TORCH = False
+else:
+    try:
+        import torch
+        HAS_TORCH = True
+    except ImportError:
+        torch = None
+        HAS_TORCH = False
+
+
+def is_torch_available() -> bool:
+    return HAS_TORCH
 
 logger = logging.getLogger("narad.embeddings.huggingface")
 
@@ -29,8 +48,12 @@ class LocalHuggingFaceEmbeddingProvider(BaseEmbeddingProvider):
         self._model = None
         self._tokenizer = None
         self._is_loaded = False
-        self._mps_available = torch.backends.mps.is_available()
-        self._device = "mps" if self._mps_available else "cpu"
+        if HAS_TORCH and hasattr(torch, "backends") and hasattr(torch.backends, "mps"):
+            self._mps_available = bool(torch.backends.mps.is_available())
+            self._device = "mps" if self._mps_available else "cpu"
+        else:
+            self._mps_available = False
+            self._device = "none"
         self._load_time_ms = 0
         self._last_inference_ms = 0
         self._last_error: Optional[str] = None
@@ -48,9 +71,33 @@ class LocalHuggingFaceEmbeddingProvider(BaseEmbeddingProvider):
         return self._dimension
 
     def is_available(self) -> bool:
+        if getattr(settings, "ENVIRONMENT", "LOCAL").upper() == "CLOUD":
+            return False
+        if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud":
+            return False
+        if not HAS_TORCH:
+            return False
         return self._is_loaded and self._model is not None
 
     def get_status(self) -> Dict[str, Any]:
+        is_cloud = (
+            settings.is_cloud
+            or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+        )
+        if is_cloud or not HAS_TORCH:
+            return {
+                "provider": self.provider_id,
+                "model": self._model_name,
+                "dimension": self._dimension,
+                "device": "NONE",
+                "mps_available": False,
+                "ready": False,
+                "cached": False,
+                "load_time_ms": 0,
+                "last_inference_ms": 0,
+                "last_error": "Embeddings unavailable in CLOUD mode (Mac offline)" if is_cloud else "PyTorch not installed",
+            }
+
         return {
             "provider": self.provider_id,
             "model": self._model_name,
@@ -66,6 +113,10 @@ class LocalHuggingFaceEmbeddingProvider(BaseEmbeddingProvider):
 
     def load_model(self) -> bool:
         """Load tokenizer and model into memory on the target hardware device."""
+        if not HAS_TORCH:
+            self._last_error = "PyTorch not installed"
+            return False
+
         if self._is_loaded:
             return True
 

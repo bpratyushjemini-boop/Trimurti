@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 from app.services.tts.base import BaseTTSProvider, TTSStatus, TTSResult
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,14 @@ class ChatterboxTTSProvider(BaseTTSProvider):
 
     def _check_environment(self) -> None:
         """Inspect environment for Python version and dependency installation."""
+        is_cloud = (
+            settings.is_cloud
+            or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+        )
+        if is_cloud:
+            self._load_error = "Chatterbox unavailable in CLOUD mode (Mac node offline)."
+            return
+
         if sys.version_info < MIN_PYTHON_VERSION:
             self._load_error = (
                 f"Chatterbox requires Python >= 3.10 (Current: {sys.version.split()[0]}). "
@@ -65,6 +74,13 @@ class ChatterboxTTSProvider(BaseTTSProvider):
 
     def _resolve_device(self) -> str:
         """Detect best available device: mps (Apple Silicon), cuda, or cpu."""
+        is_cloud = (
+            settings.is_cloud
+            or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+        )
+        if is_cloud:
+            return "none"
+
         if self.target_device and self.target_device != "auto":
             return self.target_device
 

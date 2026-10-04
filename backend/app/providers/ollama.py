@@ -63,6 +63,10 @@ class OllamaProvider(BaseLLMProvider):
         Returns True if Ollama is enabled and the daemon is reachable.
         Caches daemon liveness check for 5 seconds to prevent network thrashing.
         """
+        if settings.is_cloud:
+            return False
+        if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud":
+            return False
         if not getattr(settings, "OLLAMA_ENABLED", True):
             return False
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.services.tts.base import BaseTTSProvider, TTSStatus, TTSResult
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,12 @@ class IndicVoiceTTSProvider(BaseTTSProvider):
 
     def is_available(self) -> bool:
         """Returns True if indicvoice module is importable and weights exist."""
+        if settings.is_cloud:
+            self._load_error = "IndicVoice unavailable in CLOUD mode (Mac node offline)."
+            return False
+        if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud":
+            self._load_error = "IndicVoice unavailable in CLOUD mode (Mac node offline)."
+            return False
         try:
             import indicvoice
             if not LOCAL_WEIGHTS_PATH.exists() or LOCAL_WEIGHTS_PATH.stat().st_size < 10_000_000:

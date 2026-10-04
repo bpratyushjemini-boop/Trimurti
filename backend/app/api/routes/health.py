@@ -63,29 +63,46 @@ def check_health(db: Session = Depends(get_db)):
         "vision": model_router._capability_order(TASK_VISION),
     }
 
-    try:
-        from app.services.local_ai.manager import local_ai_manager
-        local_ai_info = local_ai_manager.get_status_info()
-        local_ai_status_str = f"READY [{local_ai_info['device']}]" if local_ai_info.get("is_loaded") else f"STANDBY [{local_ai_info['device']}]"
-    except Exception:
-        local_ai_info = {}
+    is_cloud = (
+        settings.is_cloud
+        or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+    )
+
+    if is_cloud:
+        local_ai_info = {
+            "status": "UNAVAILABLE",
+            "model": getattr(settings, "HUGGINGFACE_LOCAL_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct"),
+            "device": "NONE",
+            "mps_available": False,
+            "is_loaded": False,
+        }
         local_ai_status_str = "STANDBY"
-
-    try:
-        from app.services.embeddings.manager import embedding_manager
-        emb_status = embedding_manager.get_status()
-        embedding_status_str = f"READY [{emb_status['provider_status']['device']}]" if emb_status.get("ready") else "STANDBY"
-    except Exception:
         embedding_status_str = "STANDBY"
+        ollama_status_str = "UNAVAILABLE"
+    else:
+        try:
+            from app.services.local_ai.manager import local_ai_manager
+            local_ai_info = local_ai_manager.get_status_info()
+            local_ai_status_str = f"READY [{local_ai_info['device']}]" if local_ai_info.get("is_loaded") else f"STANDBY [{local_ai_info['device']}]"
+        except Exception:
+            local_ai_info = {}
+            local_ai_status_str = "STANDBY"
 
-    try:
-        ollama_prov = provider_manager.get_provider("ollama")
-        if ollama_prov and ollama_prov.is_configured():
-            ollama_status_str = f"ONLINE [{getattr(settings, 'OLLAMA_MODEL', 'qwen3.5:0.8b')}]"
-        else:
-            ollama_status_str = "UNAVAILABLE"
-    except Exception:
-        ollama_status_str = "STANDBY"
+        try:
+            from app.services.embeddings.manager import embedding_manager
+            emb_status = embedding_manager.get_status()
+            embedding_status_str = f"READY [{emb_status['provider_status']['device']}]" if emb_status.get("ready") else "STANDBY"
+        except Exception:
+            embedding_status_str = "STANDBY"
+
+        try:
+            ollama_prov = provider_manager.get_provider("ollama")
+            if ollama_prov and ollama_prov.is_configured():
+                ollama_status_str = f"ONLINE [{getattr(settings, 'OLLAMA_MODEL', 'qwen3.5:0.8b')}]"
+            else:
+                ollama_status_str = "UNAVAILABLE"
+        except Exception:
+            ollama_status_str = "STANDBY"
 
     return {
         "status": "online",

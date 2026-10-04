@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     LOCAL_ONLY_MODE: bool = False
     RUNTIME_OPERATION_MODE: str = "AUTO"  # AUTO | LOCAL_ONLY | OFFLINE | CLOUD_PREFERRED
 
+    @property
+    def is_cloud(self) -> bool:
+        env = os.getenv("ENVIRONMENT")
+        if env:
+            return env.strip().upper() == "CLOUD"
+        app_env = os.getenv("APP_ENV")
+        if app_env:
+            return app_env.strip().upper() == "CLOUD"
+        return self.ENVIRONMENT.upper() == "CLOUD" or self.APP_ENV.upper() == "CLOUD"
+
     # Database Configuration (SQLite local, PostgreSQL cloud)
     DATABASE_URL: str = "sqlite:///./narad.db"
     DATABASE_POOL_SIZE: int = 10

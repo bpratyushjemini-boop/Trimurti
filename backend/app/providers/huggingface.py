@@ -11,7 +11,6 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 
 from app.providers.base import BaseLLMProvider
 from app.core.config import settings
-from app.services.local_ai.manager import local_ai_manager
 
 logger = logging.getLogger("narad.providers.huggingface")
 
@@ -24,7 +23,9 @@ class LocalHuggingFaceProvider(BaseLLMProvider):
 
     def __init__(self, model_name: Optional[str] = None):
         super().__init__()
-        self._model_name = model_name or local_ai_manager.model_id
+        self._model_name = model_name or getattr(
+            settings, "HUGGINGFACE_LOCAL_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct"
+        )
 
     @property
     def provider_id(self) -> str:
@@ -35,11 +36,21 @@ class LocalHuggingFaceProvider(BaseLLMProvider):
         return "Hugging Face (Local)"
 
     def is_configured(self) -> bool:
-        """Returns True if local Hugging Face subsystem is enabled."""
-        return getattr(settings, "HUGGINGFACE_LOCAL_ENABLED", True)
+        """Returns True if local Hugging Face subsystem is enabled and available in this environment."""
+        if settings.is_cloud:
+            return False
+        if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud":
+            return False
+        if not getattr(settings, "HUGGINGFACE_LOCAL_ENABLED", True):
+            return False
+        try:
+            from app.services.local_ai.manager import is_torch_available
+            return is_torch_available()
+        except ImportError:
+            return False
 
     def get_available_models(self) -> List[str]:
-        return [local_ai_manager.model_id]
+        return [self._model_name]
 
     def supports_tools(self) -> bool:
         # Lightweight local models are optimized for text generation, not function calling
@@ -63,7 +74,7 @@ class LocalHuggingFaceProvider(BaseLLMProvider):
         """Generate response locally via local_ai_manager."""
         if not self.is_configured():
             return {
-                "content": "⚠️ Hugging Face Local AI is disabled in settings.",
+                "content": "⚠️ Hugging Face Local AI is unavailable in CLOUD mode or when PyTorch is not installed.",
                 "provider": self.provider_id,
                 "model": model or self._model_name,
                 "latency_ms": 0,
@@ -72,6 +83,7 @@ class LocalHuggingFaceProvider(BaseLLMProvider):
 
         t_start = time.perf_counter()
         try:
+            from app.services.local_ai.manager import local_ai_manager
             # Run CPU inference in threadpool so as not to block FastAPI event loop
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(

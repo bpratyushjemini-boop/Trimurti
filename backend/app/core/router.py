@@ -298,10 +298,10 @@ class ModelCapabilityRegistry:
         ))
 
         # 5. Local Hugging Face Models (On-Device, Privacy-First, Offline)
-        from app.services.local_ai.manager import local_ai_manager
+        hf_local_model = getattr(settings, "HUGGINGFACE_LOCAL_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct")
         self.register(ModelMetadata(
             provider="huggingface",
-            model_id=local_ai_manager.model_id,
+            model_id=hf_local_model,
             capabilities=[TASK_LOCAL, TASK_FAST_CHAT],
             speed_score=9,
             reasoning_score=6,
@@ -352,8 +352,7 @@ class ModelCapabilityRegistry:
         elif provider_id == "openrouter":
             return "meta-llama/llama-3.3-70b-instruct"
         elif provider_id == "huggingface":
-            from app.services.local_ai.manager import local_ai_manager
-            return local_ai_manager.model_id
+            return getattr(settings, "HUGGINGFACE_LOCAL_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct")
         elif provider_id == "ollama":
             return getattr(settings, "OLLAMA_MODEL", "qwen3.5:0.8b")
         return "default"

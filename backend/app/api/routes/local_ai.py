@@ -9,10 +9,8 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.services.local_ai.manager import local_ai_manager
+from app.core.config import settings
 from app.services.local_ai.cache import hf_cache_manager
-from app.services.embeddings.manager import embedding_manager
-from app.services.vision.huggingface_vision import local_hf_vision_provider
 
 logger = logging.getLogger("narad.api.local_ai")
 
@@ -38,6 +36,42 @@ def get_local_ai_status():
     - Knowledge Base local embedding provider status
     - Local vision provider interface status
     """
+    is_cloud = (
+        settings.is_cloud
+        or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+    )
+    if is_cloud:
+        return {
+            "llm": {
+                "status": "UNAVAILABLE",
+                "model": getattr(settings, "HUGGINGFACE_LOCAL_MODEL", "HuggingFaceTB/SmolLM2-135M-Instruct"),
+                "device": "NONE",
+                "mps_available": False,
+                "is_loaded": False,
+                "last_error": "Local AI is unavailable in CLOUD mode (Mac node offline)."
+            },
+            "cache": {
+                "cache_dir": hf_cache_manager.get_cache_dir(),
+                "models_cached": [],
+            },
+            "embeddings": {
+                "active_provider": "huggingface",
+                "provider_status": {"device": "NONE", "ready": False},
+                "ready": False
+            },
+            "vision": {
+                "provider": "huggingface_vision",
+                "model": "HuggingFaceTB/SmolVLM-Instruct",
+                "device": "NONE",
+                "status": "UNAVAILABLE",
+                "is_available": False
+            },
+        }
+
+    from app.services.local_ai.manager import local_ai_manager
+    from app.services.embeddings.manager import embedding_manager
+    from app.services.vision.huggingface_vision import local_hf_vision_provider
+
     return {
         "llm": local_ai_manager.get_status_info(),
         "cache": {
@@ -54,7 +88,18 @@ def generate_local_response(payload: LocalGenerateRequest):
     """
     Executes local on-device generation with real latency measurements.
     """
+    is_cloud = (
+        settings.is_cloud
+        or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+    )
+    if is_cloud:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Local AI generation is unavailable in CLOUD mode (Mac node offline)."
+        )
+
     try:
+        from app.services.local_ai.manager import local_ai_manager
         messages = [{"role": "user", "content": payload.prompt}]
         return local_ai_manager.generate(
             messages=messages,
@@ -74,7 +119,18 @@ def compute_local_embeddings(payload: LocalEmbeddingRequest):
     """
     Computes dense vector embedding for input text using local Hugging Face model.
     """
+    is_cloud = (
+        settings.is_cloud
+        or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+    )
+    if is_cloud:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Local embeddings computation is unavailable in CLOUD mode (Mac node offline)."
+        )
+
     try:
+        from app.services.embeddings.manager import embedding_manager
         vec = embedding_manager.embed_query(payload.text)
         if vec is None:
             raise RuntimeError("Embedding computation returned None.")
@@ -97,6 +153,17 @@ def preload_local_model():
     """
     Pre-warms the local model into memory so subsequent requests incur zero cold-start delay.
     """
+    is_cloud = (
+        settings.is_cloud
+        or getattr(settings, "NARAD_RUNTIME_MODE", "hybrid").lower() == "cloud"
+    )
+    if is_cloud:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Local model pre-warming is unavailable in CLOUD mode (Mac node offline)."
+        )
+
+    from app.services.local_ai.manager import local_ai_manager
     success = local_ai_manager.load_model()
     if not success:
         raise HTTPException(
