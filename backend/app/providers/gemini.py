@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import json
 import logging
@@ -17,6 +18,9 @@ class GeminiProvider(BaseLLMProvider):
     Uses the official google-genai SDK with an asynchronous HTTPX REST fallback.
     """
 
+    def __init__(self):
+        super().__init__()
+
     @property
     def provider_id(self) -> str:
         return "gemini"
@@ -24,6 +28,16 @@ class GeminiProvider(BaseLLMProvider):
     @property
     def display_name(self) -> str:
         return "Google Gemini"
+
+    def get_available_models(self) -> List[str]:
+        return [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro"
+        ]
+
+    def supports_vision(self) -> bool:
+        return True
 
     def _get_api_key(self) -> str:
         # 1. Check on-disk backend/.env first using dotenv_values (guarantees latest key from disk)
@@ -56,22 +70,49 @@ class GeminiProvider(BaseLLMProvider):
         Convert standard OpenAI-style [{role, content}] format
         to Gemini's required [{role: 'user'|'model', parts: [{text: ...}]}] format.
         Ensures turns strictly alternate between 'user' and 'model'.
+
+        IMPORTANT: Empty assistant/model messages must NOT be silently dropped.
+        When a model turn had no text (e.g. it only produced tool calls), dropping
+        it breaks the alternation and causes Gemini to reject the next request with:
+          "model output must contain either output text or tool calls,
+           these cannot both be empty"
+        We preserve such turns with a safe '...' placeholder instead.
         """
         formatted = []
         for m in messages:
-            content = m.get("content", "").strip()
-            if not content:
+            if m.get("role") == "system":
                 continue
-            
             role = m.get("role", "user")
             gemini_role = "model" if role in ("assistant", "model") else "user"
+
+            # Check if multimodal parts already supplied
+            existing_parts = m.get("parts")
+            if existing_parts and isinstance(existing_parts, list):
+                formatted.append({
+                    "role": gemini_role,
+                    "parts": existing_parts
+                })
+                continue
+
+            content = m.get("content", "")
+            if isinstance(content, str):
+                content = content.strip()
+
+            if not content:
+                if gemini_role == "model":
+                    # Keep the model turn alive with a minimal placeholder so
+                    # the conversation alternation remains valid for Gemini.
+                    content = "..."
+                else:
+                    # Empty user turns are safe to skip.
+                    continue
             
-            if formatted and formatted[-1]["role"] == gemini_role:
+            if formatted and formatted[-1]["role"] == gemini_role and "text" in formatted[-1]["parts"][0]:
                 formatted[-1]["parts"][0]["text"] += f"\n\n{content}"
             else:
                 formatted.append({
                     "role": gemini_role,
-                    "parts": [{"text": content}]
+                    "parts": [{"text": str(content)}]
                 })
         
         # Ensure conversation begins with a 'user' turn
@@ -86,10 +127,12 @@ class GeminiProvider(BaseLLMProvider):
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        tools: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ) -> Dict[str, Any]:
+        start_time = time.perf_counter()
         api_key = self._get_api_key()
-        target_model = model or settings.NARAD_DEFAULT_MODEL or "gemini-2.5-flash"
+        target_model = model or "gemini-2.5-flash"
 
         # Check configuration
         if not api_key:
@@ -106,8 +149,15 @@ class GeminiProvider(BaseLLMProvider):
                 "provider": self.provider_id,
                 "model": target_model,
                 "status": "unconfigured",
+                "is_transient": False,
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0}
             }
+
+        system_instruction = None
+        for m in messages:
+            if m.get("role") == "system":
+                system_instruction = m.get("content")
+                break
 
         formatted_contents = self._format_messages_for_gemini(messages)
         if not formatted_contents:
@@ -116,6 +166,7 @@ class GeminiProvider(BaseLLMProvider):
                 "provider": self.provider_id,
                 "model": target_model,
                 "status": "error",
+                "is_transient": False,
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0}
             }
 
@@ -126,15 +177,19 @@ class GeminiProvider(BaseLLMProvider):
 
             client = genai.Client(api_key=api_key)
             
+            config_params = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens
+            }
+            if system_instruction:
+                config_params["system_instruction"] = system_instruction
+
             # Run blocking SDK call in worker thread pool
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model=target_model,
                 contents=formatted_contents,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_tokens
-                )
+                config=types.GenerateContentConfig(**config_params)
             )
 
             response_text = response.text or ""
@@ -146,10 +201,14 @@ class GeminiProvider(BaseLLMProvider):
                     "total_tokens": getattr(response.usage_metadata, 'total_token_count', 0) or 0
                 }
 
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            self.record_success(latency_ms)
+
             return {
                 "content": response_text,
                 "provider": self.provider_id,
                 "model": target_model,
+                "latency_ms": latency_ms,
                 "usage": usage,
                 "status": "success"
             }
@@ -183,23 +242,60 @@ class GeminiProvider(BaseLLMProvider):
                         except Exception:
                             pass
                         
-                        logger.error(f"Gemini API returned error HTTP {res.status_code}: {error_detail}")
+                        latency_ms = int((time.perf_counter() - start_time) * 1000)
+                        status_num = res.status_code
+                        if status_num in (401, 403):
+                            from app.providers.base import HEALTH_AUTH_ERROR
+                            is_transient = False
+                            status_code = "auth_error"
+                            cooldown = 0.0
+                            self.record_failure(error_detail, is_transient=False, cooldown_seconds=0.0, health_state=HEALTH_AUTH_ERROR)
+                        elif status_num == 400:
+                            is_transient = False
+                            status_code = "client_error"
+                            cooldown = 0.0
+                            self.record_failure(error_detail, is_transient=False, cooldown_seconds=0.0)
+                        elif status_num == 429:
+                            from app.providers.base import HEALTH_RATE_LIMITED
+                            is_transient = True
+                            status_code = "rate_limit"
+                            cooldown = 60.0
+                            self.record_failure(error_detail, is_transient=True, cooldown_seconds=cooldown, health_state=HEALTH_RATE_LIMITED)
+                        elif status_num >= 500:
+                            from app.providers.base import HEALTH_DEGRADED
+                            is_transient = True
+                            status_code = "server_error"
+                            cooldown = 45.0
+                            self.record_failure(error_detail, is_transient=True, cooldown_seconds=cooldown, health_state=HEALTH_DEGRADED)
+                        else:
+                            from app.providers.base import HEALTH_UNAVAILABLE
+                            is_transient = True
+                            status_code = "api_error"
+                            cooldown = 30.0
+                            self.record_failure(error_detail, is_transient=True, cooldown_seconds=cooldown, health_state=HEALTH_UNAVAILABLE)
+                        logger.error(f"Gemini API returned error HTTP {status_num}: {error_detail}")
                         return {
-                            "content": f"⚠️ **GEMINI REQUEST FAILED (HTTP {res.status_code}):** {error_detail}\n\n*Please ensure a valid Gemini API key from Google AI Studio (https://aistudio.google.com/app/apikey) is set in `backend/.env`.*",
+                            "content": f"⚠️ **GEMINI REQUEST FAILED (HTTP {status_num}):** {error_detail}\n\n*Please ensure a valid Gemini API key from Google AI Studio (https://aistudio.google.com/app/apikey) is set in `backend/.env`.*",
                             "provider": self.provider_id,
                             "model": target_model,
-                            "status": "api_error",
+                            "latency_ms": latency_ms,
+                            "status": status_code,
+                            "is_transient": is_transient,
+                            "error": error_detail,
                             "usage": {"prompt_tokens": 0, "completion_tokens": 0}
                         }
 
                     data = res.json()
                     candidates = data.get("candidates", [])
                     if not candidates:
+                        latency_ms = int((time.perf_counter() - start_time) * 1000)
                         return {
                             "content": "Received empty candidate response from Gemini API.",
                             "provider": self.provider_id,
                             "model": target_model,
+                            "latency_ms": latency_ms,
                             "status": "empty_response",
+                            "is_transient": False,
                             "usage": {"prompt_tokens": 0, "completion_tokens": 0}
                         }
 
@@ -212,21 +308,32 @@ class GeminiProvider(BaseLLMProvider):
                         "total_tokens": usage_meta.get("totalTokenCount", 0)
                     }
 
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    self.record_success(latency_ms)
+
                     return {
                         "content": extracted_text,
                         "provider": self.provider_id,
                         "model": target_model,
+                        "latency_ms": latency_ms,
                         "usage": usage,
                         "status": "success"
                     }
 
             except Exception as http_err:
+                latency_ms = int((time.perf_counter() - start_time) * 1000)
+                err_msg = str(http_err)
+                is_transient = "connect" in err_msg.lower() or "timeout" in err_msg.lower()
+                self.record_failure(err_msg, is_transient=is_transient, cooldown_seconds=30.0)
                 logger.error(f"HTTPX fallback call failed: {http_err}", exc_info=True)
                 return {
-                    "content": f"⚠️ **GEMINI REQUEST FAILED (Connection Error):** Unable to reach Gemini API endpoint: {str(http_err)}",
+                    "content": f"⚠️ **GEMINI REQUEST FAILED (Connection Error):** Unable to reach Gemini API endpoint: {err_msg}",
                     "provider": self.provider_id,
                     "model": target_model,
+                    "latency_ms": latency_ms,
                     "status": "network_error",
+                    "is_transient": is_transient,
+                    "error": err_msg,
                     "usage": {"prompt_tokens": 0, "completion_tokens": 0}
                 }
 

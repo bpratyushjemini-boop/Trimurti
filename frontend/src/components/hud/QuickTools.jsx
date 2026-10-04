@@ -28,14 +28,14 @@ export default function QuickTools({ onSelectPrompt }) {
   return (
     <div className="hud-panel rounded-xl p-3.5 space-y-2.5 shadow-hud-subtle">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-mono tracking-wider text-narad-textDim uppercase flex items-center gap-1.5">
-          <Zap size={12} className="text-narad-cyan" />
+        <span className="hud-section-title flex items-center gap-1.5">
+          <Zap size={12} className="text-narad-saffron" />
           Quick Directives
         </span>
-        <span className="text-[9px] font-mono text-narad-cyan/80">READY</span>
+        <span className="text-[9px] font-mono text-narad-gold/70">READY</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         {tools.map((t, idx) => {
           const Icon = t.icon;
           return (
@@ -43,15 +43,12 @@ export default function QuickTools({ onSelectPrompt }) {
               key={idx}
               type="button"
               onClick={() => onSelectPrompt(t.prompt)}
-              className="p-2 rounded-lg bg-narad-card/50 hover:bg-narad-card border border-narad-border/40 hover:border-narad-cyan/40 text-left transition-all duration-150 group cursor-pointer"
+              className="p-2 rounded-lg bg-narad-card/40 hover:bg-narad-card/70 border border-narad-border/30 hover:border-narad-saffron/40 text-left transition-all duration-200 group cursor-pointer"
             >
-              <div className="flex items-center gap-1.5 text-slate-300 group-hover:text-narad-cyan transition-colors text-xs font-medium mb-0.5">
-                <Icon size={12} className="text-narad-cyan/80" />
+              <div className="flex items-center gap-1.5 text-slate-300 group-hover:text-narad-gold transition-colors text-[11px] font-medium">
+                <Icon size={11} className="text-narad-saffron/70 group-hover:text-narad-saffron flex-shrink-0" />
                 <span className="truncate">{t.name}</span>
               </div>
-              <span className="text-[9px] font-mono text-narad-textDim block truncate">
-                Click to load
-              </span>
             </button>
           );
         })}

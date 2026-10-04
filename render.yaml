@@ -1,0 +1,51 @@
+# =============================================================================
+# NARAD Cloud Infrastructure Blueprint (Render / Vendor-Neutral Reference)
+# Temporary cloud host with PostgreSQL; designed for zero-rewrite laptop migration
+# =============================================================================
+services:
+  - type: web
+    name: narad-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: APP_ENV
+        value: production
+      - key: ENVIRONMENT
+        value: CLOUD
+      - key: NARAD_RUNTIME_MODE
+        value: cloud
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: narad-db
+          property: connectionString
+      - key: NARAD_API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "https://narad.local,http://localhost:5173"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+databases:
+  - name: narad-db
+    plan: free
+    databaseName: narad
+    user: narad

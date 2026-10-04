@@ -6,6 +6,8 @@ from datetime import datetime
 from app.db.database import get_db
 from app.db.models import ChatSession, ChatMessage
 
+from app.services.smriti import smriti_service
+
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
 class ChatCreateRequest(BaseModel):
@@ -16,38 +18,33 @@ class ChatUpdateRequest(BaseModel):
 
 @router.get("")
 def list_chats(db: Session = Depends(get_db)):
-    """List all chat sessions ordered by last update."""
-    sessions = db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
+    """List all chat sessions ordered by last update via Smriti."""
+    sessions = smriti_service.list_sessions(db=db)
     return [s.to_dict() for s in sessions]
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_chat(payload: ChatCreateRequest, db: Session = Depends(get_db)):
-    """Create a new chat session."""
-    session = ChatSession(title=payload.title)
-    db.add(session)
-    db.commit()
-    db.refresh(session)
+    """Create a new chat session via Smriti."""
+    session = smriti_service.create_session(title=payload.title, db=db)
     return session.to_dict()
 
 @router.get("/{chat_id}")
 def get_chat(chat_id: str, db: Session = Depends(get_db)):
-    """Get chat session details and message history."""
-    session = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
+    """Get chat session details and message history via Smriti."""
+    session = smriti_service.get_session(session_id=chat_id, db=db)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
     
+    messages = smriti_service.get_session_messages(session_id=chat_id, db=db)
     return {
         **session.to_dict(),
-        "messages": [m.to_dict() for m in session.messages]
+        "messages": [m.to_dict() for m in messages]
     }
 
 @router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_chat(chat_id: str, db: Session = Depends(get_db)):
-    """Delete a chat session and all associated messages."""
-    session = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
-    if not session:
+    """Delete a chat session and all associated messages via Smriti."""
+    deleted = smriti_service.delete_session(session_id=chat_id, db=db)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Chat session not found")
-    
-    db.delete(session)
-    db.commit()
     return None

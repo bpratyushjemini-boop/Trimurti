@@ -8,20 +8,28 @@ export default {
     extend: {
       colors: {
         narad: {
-          bg: '#060911',           // Deepest void / navy-black
-          surface: '#0a101f',      // Dark HUD panel background
-          card: '#0d1527',         // Slightly raised card background
-          cardHover: '#131e38',    // Hover state on cards/items
-          border: 'rgba(0, 240, 255, 0.14)',      // Hairline cyan border
-          borderBright: 'rgba(0, 240, 255, 0.40)',// Active / focused border
+          bg: '#060911',
+          surface: '#0a101f',
+          card: '#0d1527',
+          cardHover: '#131e38',
+          border: 'rgba(0, 240, 255, 0.14)',
+          borderBright: 'rgba(0, 240, 255, 0.40)',
           borderMuted: 'rgba(255, 255, 255, 0.08)',
-          cyan: '#00f0ff',         // Electric iconic cyan accent
-          cyanDim: '#0284c7',      // Muted cyan for secondary elements
-          cyanGlow: 'rgba(0, 240, 255, 0.06)',   // Subtle aura
-          blue: '#38bdf8',         // Technical light blue
-          text: '#f1f5f9',         // Crisp primary text
-          textMuted: '#94a3b8',    // Muted technical labels
-          textDim: '#475569',      // Monospace dim timestamps
+          cyan: '#00f0ff',
+          cyanDim: '#0284c7',
+          cyanGlow: 'rgba(0, 240, 255, 0.06)',
+          blue: '#38bdf8',
+          text: '#f1f5f9',
+          textMuted: '#94a3b8',
+          textDim: '#475569',
+          // Indian Identity Palette
+          saffron: '#FF6B00',
+          saffronDim: 'rgba(255, 107, 0, 0.6)',
+          saffronGlow: 'rgba(255, 107, 0, 0.08)',
+          gold: '#FFD700',
+          goldDim: 'rgba(255, 215, 0, 0.5)',
+          sacred: '#FF8C00',
+          sacredGlow: 'rgba(255, 140, 0, 0.1)',
         }
       },
       fontFamily: {
@@ -32,6 +40,21 @@ export default {
       boxShadow: {
         'hud-subtle': '0 0 15px -3px rgba(0, 240, 255, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.5)',
         'hud-focus': '0 0 20px 0px rgba(0, 240, 255, 0.18)',
+        'hud-saffron': '0 0 15px -3px rgba(255, 107, 0, 0.12), 0 4px 6px -4px rgba(0, 0, 0, 0.5)',
+        'glow-cyan': '0 0 20px rgba(0, 240, 255, 0.3)',
+        'glow-saffron': '0 0 20px rgba(255, 107, 0, 0.25)',
+        'glow-gold': '0 0 12px rgba(255, 215, 0, 0.2)',
+      },
+      backgroundImage: {
+        'gradient-saffron-cyan': 'linear-gradient(135deg, #FF6B00, #00a2ffff)',
+        'gradient-hero': 'radial-gradient(ellipse at 50% 40%, rgba(0, 240, 255, 0.08) 0%, rgba(255, 107, 0, 0.04) 40%, transparent 70%)',
+        'gradient-panel': 'linear-gradient(180deg, rgba(255, 107, 0, 0.03) 0%, transparent 30%)',
+      },
+      animation: {
+        'glow-breathe': 'glow-breathe 6s ease-in-out infinite',
+        'float': 'float 4s ease-in-out infinite',
+        'gradient-shift': 'gradient-shift 3s ease infinite',
+        'shimmer': 'shimmer 3s ease-in-out infinite',
       },
     },
   },

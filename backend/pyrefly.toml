@@ -1,0 +1,34 @@
+# Pyrefly Configuration for NARAD Backend
+# Ensures only real project source is analyzed, not virtual/in-memory files.
+
+[project]
+name = "narad-backend"
+
+# Python version matching the backend virtualenv
+python_version = "3.12"
+
+# Search path for resolving imports (PYTHONPATH equivalent)
+search_path = ["."]
+
+# Source root
+source_paths = ["app", "tests"]
+
+# Exclude generated artifacts, caches, and non-source directories
+exclude = [
+    "__pycache__/",
+    "__pyrefly_virtual__/",
+    "__inmemory__/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".venv/",
+    ".venv_py39_backup/",
+    "backend/",
+    "data/",
+    "*.pyc",
+    "*.pyo",
+    "*.so",
+    ".DS_Store",
+]
+
+# Use the project virtualenv for type stubs
+python_environment = ".venv"

@@ -29,8 +29,17 @@ wheels/
 .coverage
 htmlcov/
 
+# Type Checkers / Static Analysis
+.mypy_cache/
+.pyrefly/
+__pyrefly_virtual__/
+__inmemory__/
+.pytype/
+pyrightconfig.json
+
 # Virtual Environments
-.venv/
+.venv
+.venv*
 venv/
 ENV/
 env/
@@ -42,6 +51,8 @@ env/
 *.db-journal
 *.db-wal
 *.db-shm
+data/
+backend/data/
 
 # Node / Frontend
 node_modules/
@@ -52,6 +63,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Media & Generated Audio
+*.wav
+*.mp3
+*.ogg
+*.pcm
+*.m4a
+*.webm
+
+# Model Weights & Checkpoints
+*.pt
+*.bin
+*.safetensors
+*.onnx
+models/
+checkpoints/
 
 # macOS / OS Files
 .DS_Store

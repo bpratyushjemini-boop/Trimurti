@@ -8,6 +8,8 @@ from app.db.database import get_db
 from app.db.models import ChatSession, ChatMessage
 from app.core.narad import narad_core
 
+from app.services.smriti import smriti_service
+
 router = APIRouter(prefix="/chats/{chat_id}/messages", tags=["Messages"])
 
 class MessageSendRequest(BaseModel):
@@ -17,17 +19,12 @@ class MessageSendRequest(BaseModel):
 
 @router.get("")
 def list_messages(chat_id: str, db: Session = Depends(get_db)):
-    """Retrieve all messages for a given chat session."""
-    session = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
+    """Retrieve all messages for a given chat session via Smriti."""
+    session = smriti_service.get_session(session_id=chat_id, db=db)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
     
-    messages = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.session_id == chat_id)
-        .order_by(ChatMessage.created_at.asc())
-        .all()
-    )
+    messages = smriti_service.get_session_messages(session_id=chat_id, db=db)
     return [m.to_dict() for m in messages]
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -37,10 +34,10 @@ async def send_message(
     db: Session = Depends(get_db)
 ):
     """
-    Post a user message, dispatch to the active LLM provider,
-    persist both messages to SQLite, and return the response pair.
+    Post a user message via Smriti, dispatch to NARAD Core & active LLM provider,
+    persist both messages to SQLite via Smriti, and return the response pair.
     """
-    session = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
+    session = smriti_service.get_session(session_id=chat_id, db=db)
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
 
@@ -48,36 +45,18 @@ async def send_message(
     if not content:
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
 
-    # 1. Save User Message
-    user_msg = ChatMessage(
+    # 1. Save User Message via Smriti
+    user_msg = smriti_service.add_user_message(
         session_id=chat_id,
-        role="user",
-        content=content
+        content=content,
+        db=db
     )
-    db.add(user_msg)
-    
-    # Auto-title session if it was default
-    if session.title == "New Briefing":
-        # First 35 chars
-        clean_title = content.replace("\n", " ").strip()
-        session.title = (clean_title[:35] + "...") if len(clean_title) > 35 else clean_title
 
-    session.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(user_msg)
-
-    # 2. Query NARAD Core & Model Router
-    history_messages = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.session_id == chat_id)
-        .order_by(ChatMessage.created_at.asc())
-        .all()
+    # 2. Query ordered context history from Smriti
+    formatted_history = smriti_service.get_conversation_history(
+        session_id=chat_id,
+        db=db
     )
-    
-    formatted_history = [
-        {"role": m.role, "content": m.content}
-        for m in history_messages
-    ]
 
     core_result = await narad_core.process_message(
         message=content,
@@ -86,22 +65,15 @@ async def send_message(
         requested_model=payload.model
     )
 
-    # 3. Save Assistant Message
-    assistant_msg = ChatMessage(
+    # 3. Save Assistant Message via Smriti
+    assistant_msg = smriti_service.add_assistant_message(
         session_id=chat_id,
-        role="assistant",
         content=core_result.get("response", ""),
-        metadata_json=json.dumps({
-            "provider": core_result.get("provider"),
-            "model": core_result.get("model"),
-            "latency_ms": core_result.get("latency_ms"),
-            "status": core_result.get("status"),
-            "usage": core_result.get("usage")
-        })
+        provider=core_result.get("provider"),
+        model=core_result.get("model"),
+        metadata=core_result,
+        db=db
     )
-    db.add(assistant_msg)
-    db.commit()
-    db.refresh(assistant_msg)
 
     return {
         "user_message": user_msg.to_dict(),

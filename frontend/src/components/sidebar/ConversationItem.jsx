@@ -19,26 +19,21 @@ export default function ConversationItem({
   return (
     <div
       onClick={() => onSelect(chat.id)}
-      className={`group relative flex items-center justify-between px-3 py-2.5 rounded-md text-xs cursor-pointer transition-all duration-150 ${
+      className={`group relative flex items-center justify-between px-3 py-2.5 rounded-lg text-xs cursor-pointer transition-all duration-200 ${
         isActive
-          ? 'bg-narad-card border border-narad-cyan/40 text-white shadow-hud-subtle'
-          : 'text-narad-textMuted hover:text-white hover:bg-narad-card/50 border border-transparent'
+          ? 'bg-narad-card/90 border border-narad-cyan/30 text-white shadow-hud-subtle chat-active-accent'
+          : 'text-narad-textMuted hover:text-white hover:bg-narad-card/40 border border-transparent hover:border-narad-border/40'
       }`}
     >
-      {/* Active Cyan Left Indicator Bar */}
-      {isActive && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r bg-narad-cyan shadow-[0_0_8px_#00f0ff]" />
-      )}
-
       <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0 pr-2">
         <MessageSquare
           size={14}
-          className={`flex-shrink-0 transition-colors ${
-            isActive ? 'text-narad-cyan' : 'text-narad-textDim group-hover:text-narad-cyan/80'
+          className={`flex-shrink-0 transition-colors duration-200 ${
+            isActive ? 'text-narad-saffron' : 'text-narad-textDim group-hover:text-narad-cyan/80'
           }`}
         />
         <div className="flex flex-col min-w-0">
-          <span className={`truncate font-sans text-xs ${isActive ? 'font-medium text-white' : 'text-slate-300'}`}>
+          <span className={`truncate font-sans text-xs ${isActive ? 'font-medium text-white' : 'text-slate-300 group-hover:text-slate-100'}`}>
             {chat.title || 'New Briefing'}
           </span>
           {formattedDate && (
@@ -52,7 +47,7 @@ export default function ConversationItem({
       {/* Action Button on Hover */}
       <button
         onClick={handleDelete}
-        className="opacity-0 group-hover:opacity-100 p-1.5 rounded text-narad-textDim hover:text-rose-400 hover:bg-narad-surface/80 transition-all flex-shrink-0"
+        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-narad-textDim hover:text-rose-400 hover:bg-rose-500/10 transition-all flex-shrink-0"
         title="Purge session"
       >
         <Trash2 size={13} />
