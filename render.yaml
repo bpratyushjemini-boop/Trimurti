@@ -1,6 +1,16 @@
 # =============================================================================
 # NARAD Cloud Infrastructure Blueprint (Render / Vendor-Neutral Reference)
 # Temporary cloud host with PostgreSQL; designed for zero-rewrite laptop migration
+#
+# SERVICE IDENTITY (see docs/CLOUD_DEPLOYMENT.md -> "Render service identity"):
+#   - `narad-api` / `narad-db` are the canonical Blueprint resource names. Render matches
+#     Blueprint resources BY NAME, so renaming them here would make a Blueprint sync create
+#     NEW resources (including an empty database) instead of updating existing ones.
+#   - The currently live service (https://narad-gqtq.onrender.com) does not derive its
+#     subdomain from `narad-api`, so it was most likely created manually in the Render
+#     dashboard and is NOT managed by this file. Its env vars, start command and deploys are
+#     then configured in the dashboard; edits here do not affect it until it is migrated
+#     to this Blueprint. Verify in Render: Service -> Settings -> "Blueprint" field.
 # =============================================================================
 services:
   - type: web
@@ -29,8 +39,9 @@ services:
           property: connectionString
       - key: NARAD_API_KEY
         generateValue: true
+      # CORS_ORIGINS: comma-separated (or JSON array). Add the real hosted frontend origin if one is deployed.
       - key: CORS_ORIGINS
-        value: "https://narad.local,http://localhost:5173"
+        value: "https://narad.local,http://localhost:5173,http://127.0.0.1:5173"
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: RATE_LIMIT_PER_MINUTE

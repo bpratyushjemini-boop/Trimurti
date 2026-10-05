@@ -139,7 +139,9 @@ def test_render_yaml_declares_expected_startup():
 def test_app_boots_in_cloud_mode(cloud_probe):
     assert cloud_probe["environment"] == "CLOUD"
     assert cloud_probe["runtime_mode"] == "cloud"
-    assert cloud_probe["cors_origins"] == ["https://narad.local", "http://localhost:5173"]
+    expected_cors = [o.strip() for o in _render_yaml_literal_env()["CORS_ORIGINS"].split(",") if o.strip()]
+    assert cloud_probe["cors_origins"] == expected_cors
+    assert "http://localhost:5173" in cloud_probe["cors_origins"]
 
 
 @pytest.mark.parametrize("path", EXPECTED_CLOUD_ROUTES)

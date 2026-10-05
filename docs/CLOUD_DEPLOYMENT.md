@@ -58,6 +58,23 @@ npm install
 npm run dev
 ```
 
+### Local Authentication (Web HUD → Backend)
+If `NARAD_API_KEY` is set, every non-public endpoint requires
+`Authorization: Bearer <key>` (or `X-Narad-Key: <key>`); otherwise it returns `401`.
+
+- **Canonical local secret:** `backend/.env` → `NARAD_API_KEY=...` (gitignored).
+- **How the HUD authenticates:** the Vite dev/preview server proxies `/api` to
+  `http://127.0.0.1:8000` and injects the Bearer header **server-side**
+  (`frontend/naradDevAuth.js`). It resolves the key with the same precedence as the backend
+  (process env, then `backend/.env`, `backend/.venv/.env`, root `.env`; later wins), so both
+  always agree. Edits to `backend/.env` apply without restarting Vite (restart the backend).
+- **Why not `VITE_NARAD_API_KEY`:** `VITE_*` values are inlined into the browser bundle and
+  `dist/`. The proxy approach also covers `<img src="/api/...">`/audio requests that can't
+  carry headers.
+- **Safety:** the key value is never logged (Vite prints only its source file), auth is
+  injected only for loopback clients, and client-supplied credentials are never overwritten.
+- **Test:** `npm run test:auth`
+
 ---
 
 ## 3. Cloud Deployment
@@ -73,6 +90,27 @@ NARAD is vendor-neutral and can run on **Render, Railway, Fly.io, AWS, GCP, or a
    - Links `DATABASE_URL` automatically.
 4. Set your provider API keys under Environment Variables (`GROQ_API_KEY`, etc.).
 5. Deploy.
+
+### Render service identity
+| | Name | URL | Managed by |
+| :--- | :--- | :--- | :--- |
+| Canonical Blueprint service | `narad-api` | `narad-api[-xxxx].onrender.com` (assigned on creation) | `render.yaml` |
+| Canonical Blueprint database | `narad-db` | internal | `render.yaml` |
+| **Currently live service** | dashboard-defined | `https://narad-gqtq.onrender.com` | Render dashboard (not `render.yaml`) |
+
+- Render matches Blueprint resources **by name**. Do not rename `narad-api`/`narad-db` in
+  `render.yaml` to "match" the live URL — a Blueprint sync would create new resources
+  (including an empty database).
+- The live service's subdomain does not derive from `narad-api`, so it was most likely
+  created manually. Confirm under **Service → Settings** (a Blueprint-managed service shows
+  its Blueprint). For a dashboard service, configure env vars, start command
+  (`uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`), root directory
+  (`backend`) and health check (`/health`) in the dashboard; `render.yaml` edits do not apply
+  and `autoDeploy` is whatever the dashboard says.
+- `CORS_ORIGINS` accepts comma-separated values or a JSON array. Include the origin of any
+  **hosted** frontend that calls the API directly from a browser. The local HUD goes through
+  the Vite proxy (server-to-server), so it does not need a CORS entry on the cloud service.
+- The cloud `NARAD_API_KEY` must differ from the local one.
 
 ### Option B: Docker Container
 Build and run the container locally or on any server:
