@@ -1,11 +1,12 @@
 """
 NARAD Phase 3.5 — Mac Node Agent CLI Entry Point.
 Usage:
-    python -m app.node_agent.cli --server https://narad-gqtq.onrender.com --token <node-token>
+    python -m app.node_agent.cli --server https://narad-gqtp.onrender.com --token <node-token>
 """
 
 import argparse
 import logging
+import os
 import sys
 
 from app.node_agent.agent import MacNodeAgent
@@ -18,7 +19,7 @@ def main():
     )
     parser.add_argument(
         "--server",
-        default="https://narad-gqtq.onrender.com",
+        default=os.getenv("NARAD_SERVER_URL") or os.getenv("NARAD_CLOUD_URL") or "https://narad-gqtp.onrender.com",
         help="URL of the NARAD Cloud backend.",
     )
     parser.add_argument(

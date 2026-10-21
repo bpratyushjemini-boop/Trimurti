@@ -96,7 +96,7 @@ NARAD is vendor-neutral and can run on **Render, Railway, Fly.io, AWS, GCP, or a
 | :--- | :--- | :--- | :--- |
 | Canonical Blueprint service | `narad-api` | `narad-api[-xxxx].onrender.com` (assigned on creation) | `render.yaml` |
 | Canonical Blueprint database | `narad-db` | internal | `render.yaml` |
-| **Currently live service** | dashboard-defined | `https://narad-gqtq.onrender.com` | Render dashboard (not `render.yaml`) |
+| **Currently live service** | dashboard-defined | `https://narad-gqtp.onrender.com` | Render dashboard (not `render.yaml`) |
 
 - Render matches Blueprint resources **by name**. Do not rename `narad-api`/`narad-db` in
   `render.yaml` to "match" the live URL — a Blueprint sync would create new resources

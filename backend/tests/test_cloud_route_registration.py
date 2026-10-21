@@ -171,3 +171,22 @@ def test_runtime_truth_rejects_wrong_key(cloud_probe):
 def test_runtime_truth_accepts_valid_key(cloud_probe):
     assert cloud_probe["truth_valid_bearer"] == 200
     assert cloud_probe["truth_valid_x_key"] == 200
+
+
+# ---------------------------------------------------------------------------
+# 4. Phase 3.5 Node Bridge routes must be registered in CLOUD mode
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "node_route",
+    [
+        "/api/v1/nodes/heartbeat",
+        "/api/v1/nodes/{node_id}",
+        "/api/v1/nodes/{node_id}/actions/pending",
+        "/api/v1/nodes/status",
+        "/api/v1/nodes",
+    ],
+)
+def test_node_bridge_routes_registered_in_cloud_mode(cloud_probe, node_route):
+    """Verify Phase 3.5 node bridge routes are registered in CLOUD deployment."""
+    assert node_route in cloud_probe["routes"], f"Node route {node_route} not registered in CLOUD mode"

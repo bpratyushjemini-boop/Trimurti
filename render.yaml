@@ -6,7 +6,7 @@
 #   - `narad-api` / `narad-db` are the canonical Blueprint resource names. Render matches
 #     Blueprint resources BY NAME, so renaming them here would make a Blueprint sync create
 #     NEW resources (including an empty database) instead of updating existing ones.
-#   - The currently live service (https://narad-gqtq.onrender.com) does not derive its
+#   - The currently live service (https://narad-gqtp.onrender.com) does not derive its
 #     subdomain from `narad-api`, so it was most likely created manually in the Render
 #     dashboard and is NOT managed by this file. Its env vars, start command and deploys are
 #     then configured in the dashboard; edits here do not affect it until it is migrated

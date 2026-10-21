@@ -34,7 +34,7 @@ class MacNodeAgent:
 
     def __init__(
         self,
-        server_url: str = "https://narad-gqtq.onrender.com",
+        server_url: Optional[str] = None,
         node_id: Optional[str] = None,
         node_name: Optional[str] = None,
         token: Optional[str] = None,
@@ -42,7 +42,8 @@ class MacNodeAgent:
         poll_interval: float = 2.0,
         executor: Optional[SafeNodeExecutor] = None,
     ):
-        self.server_url = server_url.rstrip("/")
+        raw_server = server_url or os.getenv("NARAD_SERVER_URL") or os.getenv("NARAD_CLOUD_URL") or "https://narad-gqtp.onrender.com"
+        self.server_url = raw_server.rstrip("/")
         # Stable node ID based on machine hostname or custom ID
         clean_host = re_sanitize = "".join(c for c in platform.node() if c.isalnum() or c in ("-", "_"))
         self.node_id = node_id or os.getenv("NARAD_NODE_ID") or f"mac_{clean_host or 'laptop'}"
@@ -54,6 +55,8 @@ class MacNodeAgent:
         self.executor = executor or SafeNodeExecutor()
         self.running = False
         self._last_heartbeat_time = 0.0
+        self.is_online = False
+        self.last_confirmed_status: Optional[str] = None
 
         # Backoff tracking for network resilience
         self._consecutive_failures = 0
@@ -68,7 +71,7 @@ class MacNodeAgent:
         method: str,
         path: str,
         payload: Optional[Dict[str, Any]] = None,
-        timeout: float = 10.0,
+        timeout: float = 30.0,
     ) -> Dict[str, Any]:
         """
         Send an outbound HTTPS/HTTP request with authentication headers.
@@ -168,6 +171,9 @@ class MacNodeAgent:
         """
         Transmit periodic heartbeat to NARAD Cloud.
         Registers genuine capabilities, architecture, and current status.
+        Only treats the heartbeat as successful when the cloud returns 2xx
+        and confirms the expected node identity and accepted status.
+        Never reports ONLINE upon 404, 401, 403, 500, or unconfirmed identity.
         """
         payload = {
             "node_id": self.node_id,
@@ -179,9 +185,48 @@ class MacNodeAgent:
         }
 
         resp = self._send_request("POST", "/api/v1/nodes/heartbeat", payload=payload)
-        self._last_heartbeat_time = time.time()
-        logger.info(f"[MacNodeAgent] Heartbeat sent: status={status} (node_id={self.node_id})")
-        return resp
+        status_code = resp.get("status_code", 200)
+
+        # Heartbeat is successful only when:
+        # 1. HTTP status code is 2xx
+        # 2. Response explicitly indicates success == True
+        # 3. Cloud confirms expected node_id
+        # 4. Cloud confirms accepted status
+        http_ok = isinstance(status_code, int) and (200 <= status_code < 300)
+        cloud_success = bool(resp.get("success", False))
+        confirmed_node_id = resp.get("node_id")
+        confirmed_status = resp.get("status")
+
+        is_confirmed = (
+            http_ok
+            and cloud_success
+            and (confirmed_node_id == self.node_id)
+            and (confirmed_status == status)
+        )
+
+        if is_confirmed:
+            self._last_heartbeat_time = time.time()
+            self.is_online = (confirmed_status == "ONLINE")
+            self.last_confirmed_status = confirmed_status
+            logger.info(
+                f"[MacNodeAgent] Heartbeat acknowledged by cloud: status={confirmed_status} (node_id={self.node_id})"
+            )
+            return resp
+
+        # Heartbeat failed / rejected
+        self.is_online = False
+        error_detail = (
+            resp.get("error", {}).get("message")
+            if isinstance(resp.get("error"), dict)
+            else resp.get("error") or resp.get("detail") or f"HTTP {status_code}"
+        )
+        logger.warning(
+            f"[MacNodeAgent] Heartbeat NOT accepted by cloud: HTTP {status_code} "
+            f"(node_id={self.node_id}, requested_status={status}, reason={error_detail})"
+        )
+        raise ConnectionError(
+            f"Heartbeat rejected by cloud (HTTP {status_code}): {error_detail}"
+        )
 
     # =========================================================================
     # ACTION POLLING & SAFE EXECUTION
@@ -191,9 +236,27 @@ class MacNodeAgent:
         """
         Poll pending commands from cloud queue and execute approved actions.
         Submits execution results back to cloud.
+        Only polls when node is confirmed ONLINE.
         """
+        if not self.is_online:
+            logger.debug("[MacNodeAgent] Skipping action poll: node is not online.")
+            return
+
         path = f"/api/v1/nodes/{urllib.parse.quote(self.node_id)}/actions/pending"
         resp = self._send_request("GET", path)
+
+        if isinstance(resp, dict):
+            status_code = resp.get("status_code", 200)
+            if isinstance(status_code, int) and status_code >= 400:
+                err_msg = (
+                    resp.get("error", {}).get("message")
+                    if isinstance(resp.get("error"), dict)
+                    else resp.get("error") or resp.get("detail") or f"HTTP {status_code}"
+                )
+                logger.warning(
+                    f"[MacNodeAgent] Polling pending actions rejected by cloud: HTTP {status_code} ({err_msg})"
+                )
+                raise ConnectionError(f"Action polling failed (HTTP {status_code}): {err_msg}")
 
         actions: List[Dict[str, Any]] = []
         if isinstance(resp, list):
@@ -235,8 +298,14 @@ class MacNodeAgent:
                 "error": error_msg,
             }
             try:
-                self._send_request("POST", res_path, payload=result_payload)
-                logger.info(f"[MacNodeAgent] Submitted result for action '{act_id}' (success={success})")
+                res_resp = self._send_request("POST", res_path, payload=result_payload)
+                res_code = res_resp.get("status_code", 200) if isinstance(res_resp, dict) else 200
+                if isinstance(res_code, int) and res_code >= 400:
+                    logger.warning(
+                        f"[MacNodeAgent] Failed to submit result for action '{act_id}': HTTP {res_code}"
+                    )
+                else:
+                    logger.info(f"[MacNodeAgent] Submitted result for action '{act_id}' (success={success})")
             except Exception as post_err:
                 logger.error(f"[MacNodeAgent] Failed to post result for action '{act_id}': {post_err}")
 
@@ -267,17 +336,19 @@ class MacNodeAgent:
             self.send_heartbeat(status="ONLINE")
             self._consecutive_failures = 0
         except Exception as e:
+            self._consecutive_failures += 1
             logger.warning(f"[MacNodeAgent] Initial heartbeat failed, will retry in loop: {e}")
 
         while self.running:
             now = time.time()
             try:
-                # 1. Periodic heartbeat
-                if now - self._last_heartbeat_time >= self.heartbeat_interval:
+                # 1. Periodic heartbeat (or immediate retry if not currently online)
+                if not self.is_online or (now - self._last_heartbeat_time >= self.heartbeat_interval):
                     self.send_heartbeat(status="ONLINE")
 
-                # 2. Poll for pending actions
-                self.poll_and_execute_actions()
+                # 2. Poll for pending actions only if confirmed online
+                if self.is_online:
+                    self.poll_and_execute_actions()
 
                 # Reset failure counter upon successful iteration
                 self._consecutive_failures = 0
@@ -304,6 +375,7 @@ class MacNodeAgent:
         reflects node disconnection with zero lag.
         """
         self.running = False
+        self.is_online = False
         logger.info(f"[MacNodeAgent] Sending OFFLINE notification for node '{self.node_id}'...")
         try:
             self.send_heartbeat(status="OFFLINE")

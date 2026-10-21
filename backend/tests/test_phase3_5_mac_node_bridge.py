@@ -30,13 +30,14 @@ from app.node_agent.executor import SafeNodeExecutor
 
 
 from datetime import datetime, timezone, timedelta
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, init_db
 from app.db.models import LocalNodeRecord, NodeActionRecord
 
 
 @pytest.fixture(autouse=True)
 def clean_node_state():
     """Reset registry state before each test."""
+    init_db()
     node_registry._cached_nodes.clear()
     node_registry._token_hashes.clear()
     node_registry._actions.clear()
@@ -547,3 +548,177 @@ def test_local_agent_startup_and_graceful_shutdown(client):
     assert node["status"] == "OFFLINE"
     # Immediately offline with zero timeout lag
     assert node_registry.is_local_node_connected() is False
+
+
+# =============================================================================
+# 13. Node-Agent HTTP Error-Handling & False ONLINE Prevention
+# =============================================================================
+
+def test_agent_heartbeat_404_never_reports_online():
+    """
+    CRITICAL: Verify the node agent treats HTTP 404 (e.g. Render edge routing 'no-server'
+    or missing route) as an explicit failure, sets is_online=False, raises ConnectionError,
+    and NEVER reports the node as ONLINE.
+    """
+    agent = MacNodeAgent(
+        server_url="https://narad-gqtq.onrender.com",
+        node_id="mac_test_404_node",
+    )
+
+    # Mock _send_request returning HTTP 404 from Render
+    def mock_404_response(method, path, payload=None, timeout=30.0):
+        return {
+            "status_code": 404,
+            "error": "HTTP Error 404: Not Found",
+            "detail": "Not Found",
+        }
+
+    agent._send_request = mock_404_response
+
+    # Heartbeat must fail and raise ConnectionError
+    with pytest.raises(ConnectionError) as exc_info:
+        agent.send_heartbeat(status="ONLINE")
+
+    assert "404" in str(exc_info.value)
+    # Agent must NEVER be marked online
+    assert agent.is_online is False
+    assert agent.last_confirmed_status is None
+
+
+def test_agent_heartbeat_auth_failure_401_403_never_reports_online():
+    """Verify HTTP 401 Unauthorized or 403 Forbidden is never treated as ONLINE."""
+    agent = MacNodeAgent(
+        server_url="https://cloud.narad.ai",
+        node_id="mac_test_auth_fail",
+    )
+
+    # 1. Test 401
+    agent._send_request = lambda m, p, payload=None, timeout=30.0: {
+        "status_code": 401,
+        "error": {"code": "AUTH_REQUIRED", "message": "Invalid credentials"},
+    }
+    with pytest.raises(ConnectionError) as exc_401:
+        agent.send_heartbeat(status="ONLINE")
+    assert "401" in str(exc_401.value)
+    assert agent.is_online is False
+
+    # 2. Test 403 (e.g. node revoked)
+    agent._send_request = lambda m, p, payload=None, timeout=30.0: {
+        "status_code": 403,
+        "error": {"code": "NODE_REVOKED", "message": "Execution node revoked"},
+    }
+    with pytest.raises(ConnectionError) as exc_403:
+        agent.send_heartbeat(status="ONLINE")
+    assert "403" in str(exc_403.value)
+    assert agent.is_online is False
+
+
+def test_agent_heartbeat_server_error_500_503_never_reports_online():
+    """Verify HTTP 500 or 503 is never treated as ONLINE."""
+    agent = MacNodeAgent(
+        server_url="https://cloud.narad.ai",
+        node_id="mac_test_500",
+    )
+    agent._send_request = lambda m, p, payload=None, timeout=30.0: {
+        "status_code": 503,
+        "error": "Service Unavailable",
+    }
+    with pytest.raises(ConnectionError) as exc_503:
+        agent.send_heartbeat(status="ONLINE")
+    assert "503" in str(exc_503.value)
+    assert agent.is_online is False
+
+
+def test_agent_heartbeat_mismatched_identity_rejected():
+    """Even on HTTP 200, if cloud confirms a different node_id or status != ONLINE, reject."""
+    agent = MacNodeAgent(
+        server_url="https://cloud.narad.ai",
+        node_id="expected_node_id",
+    )
+    # Cloud responds 200 OK, but returned node_id doesn't match
+    agent._send_request = lambda m, p, payload=None, timeout=30.0: {
+        "status_code": 200,
+        "success": True,
+        "node_id": "wrong_node_id",
+        "status": "ONLINE",
+    }
+    with pytest.raises(ConnectionError):
+        agent.send_heartbeat(status="ONLINE")
+    assert agent.is_online is False
+
+
+def test_agent_skips_action_polling_when_offline():
+    """When node is offline, poll_and_execute_actions must not perform any outbound requests."""
+    agent = MacNodeAgent(
+        server_url="https://cloud.narad.ai",
+        node_id="offline_poller",
+    )
+    assert agent.is_online is False
+
+    poll_called = False
+    def mock_poll(method, path, payload=None, timeout=30.0):
+        nonlocal poll_called
+        poll_called = True
+        return []
+
+    agent._send_request = mock_poll
+    agent.poll_and_execute_actions()
+    assert poll_called is False, "Agent should not poll pending actions when offline"
+
+
+def test_agent_polling_http_error_raises_connection_error():
+    """When action polling returns HTTP 404 or 401, ConnectionError must be raised to trigger backoff."""
+    agent = MacNodeAgent(
+        server_url="https://cloud.narad.ai",
+        node_id="error_poller",
+    )
+    agent.is_online = True
+
+    agent._send_request = lambda m, p, payload=None, timeout=30.0: {
+        "status_code": 404,
+        "error": "Node not found",
+    }
+
+    with pytest.raises(ConnectionError) as exc:
+        agent.poll_and_execute_actions()
+    assert "404" in str(exc.value)
+
+
+def test_agent_default_server_url(monkeypatch):
+    """
+    CRITICAL REGRESSION: Verify default cloud server URL points to the live deployment
+    https://narad-gqtp.onrender.com and correctly respects NARAD_SERVER_URL / NARAD_CLOUD_URL env vars.
+    """
+    monkeypatch.delenv("NARAD_SERVER_URL", raising=False)
+    monkeypatch.delenv("NARAD_CLOUD_URL", raising=False)
+
+    # 1. Default should point to narad-gqtp
+    agent_default = MacNodeAgent()
+    assert agent_default.server_url == "https://narad-gqtp.onrender.com"
+
+    # 2. Overridden via constructor
+    agent_custom = MacNodeAgent(server_url="https://custom.narad.ai/")
+    assert agent_custom.server_url == "https://custom.narad.ai"
+
+    # 3. Overridden via NARAD_SERVER_URL
+    monkeypatch.setenv("NARAD_SERVER_URL", "https://env-server.narad.ai")
+    agent_env = MacNodeAgent()
+    assert agent_env.server_url == "https://env-server.narad.ai"
+
+
+def test_agent_paths_match_openapi_contract():
+    """
+    REGRESSION: Verify all paths invoked by MacNodeAgent are exact members
+    of the OpenAPI route table registered on the FastAPI app.
+    """
+    openapi = app.openapi()
+    api_paths = set(openapi.get("paths", {}).keys())
+
+    expected_agent_endpoints = [
+        "/api/v1/nodes/heartbeat",
+        "/api/v1/nodes/{node_id}/actions/pending",
+        "/api/v1/nodes/{node_id}/actions/{action_id}/result",
+    ]
+
+    for ep in expected_agent_endpoints:
+        assert ep in api_paths, f"Node agent endpoint '{ep}' missing from FastAPI route table"
