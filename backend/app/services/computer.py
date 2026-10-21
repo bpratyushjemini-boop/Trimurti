@@ -184,8 +184,20 @@ class MacComputerAdapter(ComputerAdapter):
 
         if not self.is_available():
             from app.core.config import settings
-            msg = "Mac unavailable: Running in cloud mode and Mac is offline." if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid") == "cloud" else f"Opening applications is only supported on macOS. System: {self.os_name}"
+            is_cloud = getattr(settings, "NARAD_RUNTIME_MODE", "hybrid") == "cloud"
+            if is_cloud or self.os_name != "Darwin":
+                from app.services.node_registry import node_registry
+                active_node = node_registry.get_active_node()
+                if active_node:
+                    return node_registry.dispatch_and_wait_sync(
+                        node_id=active_node["node_id"],
+                        action_type="open_application",
+                        payload={"application": app_name, "path": path},
+                        timeout_seconds=15,
+                    )
+            msg = "Mac unavailable: Running in cloud mode and Mac is offline." if is_cloud else f"Opening applications is only supported on macOS. System: {self.os_name}"
             return {"success": False, "error": msg}
+
 
         target_app = self._resolve_app_name(app_name)
         sanitized = sanitize_applescript_string(target_app)
@@ -627,8 +639,21 @@ class MacComputerAdapter(ComputerAdapter):
         """Capture the screen quietly using /usr/sbin/screencapture -x."""
         if not self.is_available():
             from app.core.config import settings
-            msg = "Mac unavailable: Running in cloud mode and Mac is offline." if getattr(settings, "NARAD_RUNTIME_MODE", "hybrid") == "cloud" else f"Screen capture is only supported on macOS. System: {self.os_name}"
+            is_cloud = getattr(settings, "NARAD_RUNTIME_MODE", "hybrid") == "cloud"
+            if is_cloud or self.os_name != "Darwin":
+                from app.services.node_registry import node_registry
+                active_node = node_registry.get_active_node()
+                if active_node:
+                    return node_registry.dispatch_and_wait_sync(
+                        node_id=active_node["node_id"],
+                        action_type="take_screenshot",
+                        payload={"filename": filename},
+                        confirmed=True,
+                        timeout_seconds=20,
+                    )
+            msg = "Mac unavailable: Running in cloud mode and Mac is offline." if is_cloud else f"Screen capture is only supported on macOS. System: {self.os_name}"
             return {"success": False, "error": msg}
+
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = f"screenshot_{timestamp}.png" if not filename else filename
@@ -839,6 +864,20 @@ class MacComputerAdapter(ComputerAdapter):
 
     def get_system_state(self) -> Dict[str, Any]:
         """Collect platform, active window, and system state for NARAD & Trinetra."""
+        from app.core.config import settings
+        is_cloud = getattr(settings, "NARAD_RUNTIME_MODE", "hybrid") == "cloud"
+        if is_cloud or self.os_name != "Darwin":
+            from app.services.node_registry import node_registry
+            active_node = node_registry.get_active_node()
+            if active_node:
+                relay_res = node_registry.dispatch_and_wait_sync(
+                    node_id=active_node["node_id"],
+                    action_type="get_system_state",
+                    timeout_seconds=10,
+                )
+                if relay_res.get("success"):
+                    return relay_res
+
         active_app = self.get_active_application()
         return {
             "success": True,
@@ -849,6 +888,7 @@ class MacComputerAdapter(ComputerAdapter):
             "screenshots_available": os.path.exists(self.screenshots_dir),
             "timestamp": datetime.datetime.now().isoformat(),
         }
+
 
 
 # Global singleton instance

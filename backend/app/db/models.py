@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 import json
 from typing import Optional
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, Float
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, Float, Boolean
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 from app.core.identifiers import (
@@ -294,6 +294,9 @@ class LocalNodeRecord(Base):
     capabilities_json = Column(Text, nullable=True)
     runtime_json = Column(Text, nullable=True)
     models_json = Column(Text, nullable=True)
+    token_hash = Column(String(128), nullable=True)
+    revoked = Column(Boolean, default=False, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
     last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -313,7 +316,55 @@ class LocalNodeRecord(Base):
             "capabilities": _parse(self.capabilities_json, {}),
             "runtime": _parse(self.runtime_json, {}),
             "model_availability": _parse(self.models_json, []),
+            "revoked": bool(self.revoked),
+            "revoked_at": _format_utc_iso(self.revoked_at),
             "last_seen": _format_utc_iso(self.last_seen),
             "created_at": _format_utc_iso(self.created_at),
         }
+
+
+class NodeActionRecord(Base):
+    __tablename__ = "node_actions"
+
+    action_id = Column(String(64), primary_key=True)
+    node_id = Column(String(64), nullable=False, index=True)
+    action_type = Column(String(64), nullable=False)
+    payload_json = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="PENDING")  # PENDING, DISPATCHED, COMPLETED, FAILED, CANCELLED, TIMEOUT
+    permission_level = Column(Integer, default=0, nullable=False)
+    requires_confirmation = Column(Boolean, default=False, nullable=False)
+    confirmed = Column(Boolean, default=False, nullable=False)
+    result_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    request_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    def to_dict(self):
+        def _parse(val, fallback):
+            if not val:
+                return fallback
+            try:
+                return json.loads(val)
+            except Exception:
+                return fallback
+
+        return {
+            "action_id": self.action_id,
+            "node_id": self.node_id,
+            "action_type": self.action_type,
+            "payload": _parse(self.payload_json, {}),
+            "status": self.status,
+            "permission_level": self.permission_level,
+            "requires_confirmation": bool(self.requires_confirmation),
+            "confirmed": bool(self.confirmed),
+            "result": _parse(self.result_json, None),
+            "error": self.error,
+            "request_id": self.request_id,
+            "created_at": _format_utc_iso(self.created_at),
+            "expires_at": _format_utc_iso(self.expires_at),
+            "completed_at": _format_utc_iso(self.completed_at),
+        }
+
 

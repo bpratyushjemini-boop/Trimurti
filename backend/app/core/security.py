@@ -108,19 +108,38 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # 1. Path exemption check
         is_public = path in PUBLIC_PATHS or path.rstrip("/") in PUBLIC_PATHS
 
-        # 2. Single-user Auth Boundary
+        # 2. Single-user Auth Boundary & Secure Node Token Verification
         api_key = getattr(settings, "NARAD_API_KEY", "")
-        if api_key and api_key.strip() and not is_public:
-            # Check Bearer token or X-Narad-Key header
+        node_token = getattr(settings, "NARAD_NODE_TOKEN", "")
+        auth_required = bool((api_key and api_key.strip()) or (node_token and node_token.strip()))
+        if auth_required and not is_public:
+            # Check Bearer token, X-Narad-Key, or X-Node-Token header
             auth_header = request.headers.get("Authorization", "")
             key_header = request.headers.get("X-Narad-Key", "")
+            node_header = request.headers.get("X-Node-Token", "")
             provided_token = ""
             if auth_header.startswith("Bearer "):
                 provided_token = auth_header[len("Bearer "):].strip()
             elif key_header:
                 provided_token = key_header.strip()
+            elif node_header:
+                provided_token = node_header.strip()
 
-            if provided_token != api_key:
+            is_authenticated = False
+            if provided_token:
+                if api_key and provided_token == api_key:
+                    is_authenticated = True
+                elif node_token and provided_token == node_token:
+                    is_authenticated = True
+                else:
+                    try:
+                        from app.services.node_registry import node_registry
+                        if node_registry.verify_token(provided_token):
+                            is_authenticated = True
+                    except Exception as e:
+                        logger.debug(f"[Security] Node token verification check: {e}")
+
+            if not is_authenticated:
                 logger.warning(f"[Security] Unauthorized access attempt to {path} from {request.client.host if request.client else 'unknown'}")
                 if path.startswith("/api/v1"):
                     return JSONResponse(
@@ -128,7 +147,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                         content={
                             "error": {
                                 "code": "AUTH_REQUIRED",
-                                "message": "Invalid or missing NARAD API key. Provide via 'Authorization: Bearer <key>' or 'X-Narad-Key'.",
+                                "message": "Invalid or missing NARAD credentials. Provide via 'Authorization: Bearer <key>', 'X-Narad-Key', or 'X-Node-Token'.",
                                 "request_id": req_id,
                                 "task_id": None,
                                 "retryable": False,
@@ -142,11 +161,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     content={
                         "error": "Unauthorized",
                         "error_code": "AUTH_REQUIRED",
-                        "detail": "Invalid or missing NARAD API key. Provide via 'Authorization: Bearer <key>' or 'X-Narad-Key'.",
+                        "detail": "Invalid or missing NARAD credentials. Provide via 'Authorization: Bearer <key>', 'X-Narad-Key', or 'X-Node-Token'.",
                         "request_id": req_id
                     },
                     headers={"WWW-Authenticate": "Bearer"}
                 )
+
 
         # 3. Request Size Limit Protection
         content_length = request.headers.get("Content-Length")

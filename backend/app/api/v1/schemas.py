@@ -347,3 +347,52 @@ class NodeStatusResponse(BaseModel):
     active_node_id: Optional[str] = Field(None, description="Active local node identifier")
     active_node: Optional[Dict[str, Any]] = Field(None, description="Active node details")
     nodes: List[Dict[str, Any]] = Field(default_factory=list, description="List of all registered nodes")
+
+
+class NodeActionCreateRequest(BaseModel):
+    action_type: str = Field(..., min_length=1, description="Allowed operation: node_status, diagnostics, get_system_state, open_application, take_screenshot")
+    payload: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Action arguments")
+    confirmed: Optional[bool] = Field(False, description="Explicit user confirmation for sensitive actions")
+    timeout_seconds: Optional[int] = Field(30, ge=1, le=300, description="Execution timeout in seconds")
+
+
+class NodeActionResponse(BaseModel):
+    success: bool = Field(True, description="Action creation/query status")
+    action_id: str = Field(..., description="Unique action ID")
+    node_id: str = Field(..., description="Target node ID")
+    action_type: str = Field(..., description="Action type")
+    status: str = Field(..., description="Action status (PENDING, DISPATCHED, COMPLETED, FAILED, CANCELLED, TIMEOUT)")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Action arguments")
+    permission_level: int = Field(0, description="Action permission risk level")
+    requires_confirmation: bool = Field(False, description="Whether confirmation is required")
+    confirmed: bool = Field(False, description="Whether explicit confirmation was provided")
+    result: Optional[Dict[str, Any]] = Field(None, description="Action execution result")
+    error: Optional[str] = Field(None, description="Error message if failed")
+    request_id: Optional[str] = Field(None, description="Correlation request ID")
+    created_at: str = Field(..., description="Creation ISO timestamp")
+    completed_at: Optional[str] = Field(None, description="Completion ISO timestamp")
+
+
+class NodeActionResultRequest(BaseModel):
+    success: bool = Field(..., description="Whether action succeeded")
+    result: Optional[Dict[str, Any]] = Field(None, description="Execution output")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class NodeActionCancelRequest(BaseModel):
+    reason: Optional[str] = Field("Cancelled by user or system", description="Cancellation reason")
+
+
+class NodeRevokeResponse(BaseModel):
+    success: bool = Field(True, description="Revocation success")
+    node_id: str = Field(..., description="Node ID")
+    revoked: bool = Field(True, description="Revocation state")
+    revoked_at: str = Field(..., description="Revocation ISO timestamp")
+
+
+class NodeTokenRotateResponse(BaseModel):
+    success: bool = Field(True, description="Rotation success")
+    node_id: str = Field(..., description="Node ID")
+    token: str = Field(..., description="New node authentication token")
+    rotated_at: str = Field(..., description="Rotation ISO timestamp")
+

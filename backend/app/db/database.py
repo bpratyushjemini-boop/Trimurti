@@ -109,5 +109,20 @@ def init_db():
                         logger.info(f"[DB] Migrating smriti_memories: adding column {col_name}")
                         conn.execute(text(f"ALTER TABLE smriti_memories ADD COLUMN {col_name} {col_def}"))
                 conn.commit()
+
+        if "local_nodes" in existing_tables:
+            node_cols = {col["name"] for col in inspector.get_columns("local_nodes")}
+            node_new_cols = [
+                ("token_hash", "VARCHAR(128)"),
+                ("revoked", "BOOLEAN DEFAULT FALSE"),
+                ("revoked_at", "DATETIME" if is_sqlite else "TIMESTAMP"),
+            ]
+            with engine.connect() as conn:
+                for col_name, col_def in node_new_cols:
+                    if col_name not in node_cols:
+                        logger.info(f"[DB] Migrating local_nodes: adding column {col_name}")
+                        conn.execute(text(f"ALTER TABLE local_nodes ADD COLUMN {col_name} {col_def}"))
+                conn.commit()
     except Exception as e:
         logger.warning(f"[DB] Schema migration notice: {e}")
+

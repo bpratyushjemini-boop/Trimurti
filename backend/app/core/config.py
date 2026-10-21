@@ -69,6 +69,8 @@ class Settings(BaseSettings):
 
     # Security & Protection for Cloud / Production
     NARAD_API_KEY: str = ""  # If set, enforces single-user Bearer/X-Narad-Key auth
+    NARAD_NODE_TOKEN: str = ""  # Dedicated credential for local Mac node bridge
+    NARAD_NODE_TIMEOUT_SECONDS: float = 120.0  # Node heartbeat expiration window
     MAX_REQUEST_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB limit
     RATE_LIMIT_PER_MINUTE: int = 120
     RATE_LIMIT_ENABLED: bool = True
